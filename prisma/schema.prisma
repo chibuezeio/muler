@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Product {
+  id           String      @id @default(cuid())
+  productId    String      @unique
+  name         String
+  batch        String
+  manufacturer String
+  qrPayload    String      @unique
+  description  String?
+  createdAt    DateTime    @default(now())
+  scans        ScanEvent[]
+}
+
+model ScanEvent {
+  id              String    @id @default(cuid())
+  productId       String?
+  product         Product?  @relation(fields: [productId], references: [id])
+  decodedPayload  String
+  latitude        Float?
+  longitude       Float?
+  deviceId        String?
+  imageMeta       String?
+  layer1Pass      Boolean   @default(false)
+  layer2Pass      Boolean   @default(false)
+  layer3Pass      Boolean   @default(false)
+  riskFlags       String    @default("[]")
+  outcome         String
+  aiRemark        String?
+  aiRecommendations String?
+  distanceMiles   Float?
+  hoursSinceLast  Float?
+  scanCountAtTime Int       @default(0)
+  reported        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  verificationRun VerificationRun?
+}
+
+model VerificationRun {
+  id         String    @id @default(cuid())
+  scanEventId String   @unique
+  scanEvent  ScanEvent @relation(fields: [scanEventId], references: [id], onDelete: Cascade)
+  layer1Json String
+  layer2Json String
+  layer3Json String
+  createdAt  DateTime  @default(now())
+}
+
+model ThresholdConfig {
+  id         Int      @id @default(1)
+  maxMilesX  Float    @default(50)
+  minHoursY  Float    @default(2)
+  maxScansN  Int      @default(25)
+  updatedAt  DateTime @updatedAt
+}
