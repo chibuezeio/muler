@@ -4,19 +4,14 @@ import type {
   RiskFlag,
   VisualRiskLevel,
 } from "@/lib/types";
+import {
+  AZURE_OPENAI_API_KEY,
+  AZURE_OPENAI_ENDPOINT,
+  AZURE_OPENAI_MODEL,
+} from "@/lib/config";
 
-const endpoint =
-  process.env.AZURE_OPENAI_ENDPOINT ??
-  "https://osi-azure-openai.services.ai.azure.com/openai/v1/responses";
-const model = process.env.AZURE_OPENAI_MODEL ?? "gpt-5.4";
-
-function getApiKey() {
-  const key = process.env.AZURE_OPENAI_API_KEY;
-  if (!key) {
-    throw new Error("AZURE_OPENAI_API_KEY is not configured");
-  }
-  return key;
-}
+const endpoint = AZURE_OPENAI_ENDPOINT;
+const model = AZURE_OPENAI_MODEL;
 
 function extractText(data: {
   output?: Array<{
@@ -38,7 +33,8 @@ async function callResponses(input: unknown): Promise<string> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": getApiKey(),
+      "api-key": AZURE_OPENAI_API_KEY,
+      Authorization: `Bearer ${AZURE_OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
       model,

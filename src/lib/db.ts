@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { MONGODB_URI } from "@/lib/config";
 import { Product } from "@/lib/models/Product";
 import { ThresholdConfig } from "@/lib/models/ThresholdConfig";
 
@@ -7,20 +8,12 @@ const globalForMongo = globalThis as unknown as {
   muleDbReady?: Promise<void>;
 };
 
-function getMongoUri() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("MONGODB_URI is not configured");
-  }
-  return uri;
-}
-
 export async function connectMongo() {
   if (mongoose.connection.readyState === 1) {
     return mongoose;
   }
   if (!globalForMongo.mongoosePromise) {
-    globalForMongo.mongoosePromise = mongoose.connect(getMongoUri(), {
+    globalForMongo.mongoosePromise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,
     });
   }

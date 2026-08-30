@@ -1,5 +1,5 @@
-import "dotenv/config";
 import mongoose from "mongoose";
+import { MONGODB_URI } from "../src/lib/config";
 import { Product } from "../src/lib/models/Product";
 import { ScanEvent } from "../src/lib/models/ScanEvent";
 import { ThresholdConfig } from "../src/lib/models/ThresholdConfig";
@@ -97,10 +97,7 @@ function hoursAgo(h: number) {
 }
 
 async function main() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("MONGODB_URI is required");
-
-  await mongoose.connect(uri);
+  await mongoose.connect(MONGODB_URI);
   await ScanEvent.deleteMany({});
   await Product.deleteMany({});
   await ThresholdConfig.deleteMany({});

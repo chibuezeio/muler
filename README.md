@@ -32,25 +32,13 @@ Default thresholds (editable in the dashboard):
 
 ```bash
 npm install
-cp .env.example .env.local   # add MONGODB_URI + Azure key
 npm run db:seed
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) (or the port Next.js prints if 3000 is busy).
 
-### Environment
-
-```env
-MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster.mongodb.net/muler?retryWrites=true&w=majority
-AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_ENDPOINT=https://osi-azure-openai.services.ai.azure.com/openai/v1/responses
-AZURE_OPENAI_MODEL=gpt-5.4
-```
-
-> Encode special characters in the Mongo password (e.g. `!` → `%21`).  
-> On Vercel, set the same `MONGODB_URI` and Azure vars, and allow `0.0.0.0/0` (or Vercel IPs) in Atlas Network Access.  
-> Rotate any credentials that were pasted in chat.
+Credentials (MongoDB + Azure OpenAI) live in [`src/lib/config.ts`](src/lib/config.ts) — no `.env` required for this private repo.
 
 ## Reproducing evaluation scenarios
 
