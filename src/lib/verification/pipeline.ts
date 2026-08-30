@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { Product, ScanEvent, ThresholdConfig } from "@/lib/db";
 import { haversineMiles, hoursBetween } from "@/lib/geo";
 import { analyzeScanImage, generateAiRemarks } from "@/lib/openai";
 import type {
@@ -15,9 +15,12 @@ import type {
 
 async function getThresholds(): Promise<Thresholds> {
   const row =
-    (await prisma.thresholdConfig.findUnique({ where: { id: 1 } })) ??
-    (await prisma.thresholdConfig.create({
-      data: { id: 1, maxMilesX: 50, minHoursY: 2, maxScansN: 25 },
+    (await ThresholdConfig.findOne({ key: "default" })) ??
+    (await ThresholdConfig.create({
+      key: "default",
+      maxMilesX: 50,
+      minHoursY: 2,
+      maxScansN: 25,
     }));
   return {
     maxMilesX: row.maxMilesX,
@@ -434,9 +437,16 @@ export async function runVerification(
       });
     }
   } else {
-    product = await prisma.product.findUnique({
-      where: { qrPayload: payload },
-    });
+    const found = await Product.findOne({ qrPayload: payload }).lean();
+    product = found
+      ? {
+          id: String(found._id),
+          productId: found.productId,
+          name: found.name,
+          batch: found.batch,
+          manufacturer: found.manufacturer,
+        }
+      : null;
 
     if (!product) {
       layer2Pass = false;
@@ -453,26 +463,31 @@ export async function runVerification(
         metrics: { recognized: false },
       });
     } else {
-      const lastScan = await prisma.scanEvent.findFirst({
-        where: { decodedPayload: payload },
-        orderBy: { createdAt: "desc" },
-      });
+      const lastScan = await ScanEvent.findOne({ decodedPayload: payload })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const lastCreatedAt =
+        lastScan && "createdAt" in lastScan && lastScan.createdAt
+          ? new Date(lastScan.createdAt as Date)
+          : null;
 
       const hasGeo =
         typeof input.latitude === "number" &&
         typeof input.longitude === "number" &&
         lastScan &&
+        lastCreatedAt &&
         typeof lastScan.latitude === "number" &&
         typeof lastScan.longitude === "number";
 
-      if (hasGeo) {
+      if (hasGeo && lastCreatedAt) {
         distanceMiles = haversineMiles(
           lastScan.latitude!,
           lastScan.longitude!,
           input.latitude!,
           input.longitude!,
         );
-        hoursSinceLast = hoursBetween(lastScan.createdAt, new Date());
+        hoursSinceLast = hoursBetween(lastCreatedAt, new Date());
 
         if (
           distanceMiles > thresholds.maxMilesX &&
@@ -523,7 +538,7 @@ export async function runVerification(
   // ——— Layer 3: Temporal + frequency ———
   let layer3Pass = true;
   const priorCount = payload
-    ? await prisma.scanEvent.count({ where: { decodedPayload: payload } })
+    ? await ScanEvent.countDocuments({ decodedPayload: payload })
     : 0;
   const scanCount = payload ? priorCount + 1 : hasImage ? 1 : 0;
   const layer3Details: string[] = [];
@@ -745,38 +760,34 @@ async function persistAndRespond(args: {
 
   const visual = toVisualAssessment(vision);
 
-  const scan = await prisma.scanEvent.create({
-    data: {
-      productId: product?.id,
-      decodedPayload: input.decodedPayload || "(photo-only)",
-      latitude: input.latitude ?? null,
-      longitude: input.longitude ?? null,
-      deviceId: input.deviceId ?? null,
-      imageMeta: input.mimeType
-        ? JSON.stringify({
-            mimeType: input.mimeType,
-            hasImage: Boolean(input.imageBase64),
-            packagingNotes,
-            visual,
-          })
-        : null,
-      layer1Pass,
-      layer2Pass,
-      layer3Pass,
-      riskFlags: JSON.stringify(riskFlags),
-      outcome,
-      aiRemark,
-      aiRecommendations: JSON.stringify(aiRecommendations),
-      distanceMiles,
-      hoursSinceLast,
-      scanCountAtTime: scanCount,
-      verificationRun: {
-        create: {
-          layer1Json: JSON.stringify(layers.filter((l) => l.layer === 1)),
-          layer2Json: JSON.stringify(layers.filter((l) => l.layer === 2)),
-          layer3Json: JSON.stringify(layers.filter((l) => l.layer === 3)),
-        },
-      },
+  const scan = await ScanEvent.create({
+    product: product?.id ?? null,
+    decodedPayload: input.decodedPayload || "(photo-only)",
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    deviceId: input.deviceId ?? null,
+    imageMeta: input.mimeType
+      ? JSON.stringify({
+          mimeType: input.mimeType,
+          hasImage: Boolean(input.imageBase64),
+          packagingNotes,
+          visual,
+        })
+      : null,
+    layer1Pass,
+    layer2Pass,
+    layer3Pass,
+    riskFlags: JSON.stringify(riskFlags),
+    outcome,
+    aiRemark,
+    aiRecommendations: JSON.stringify(aiRecommendations),
+    distanceMiles,
+    hoursSinceLast,
+    scanCountAtTime: scanCount,
+    verificationRun: {
+      layer1Json: JSON.stringify(layers.filter((l) => l.layer === 1)),
+      layer2Json: JSON.stringify(layers.filter((l) => l.layer === 2)),
+      layer3Json: JSON.stringify(layers.filter((l) => l.layer === 3)),
     },
   });
 
@@ -801,7 +812,7 @@ async function persistAndRespond(args: {
     },
     aiRemark,
     aiRecommendations,
-    scanEventId: scan.id,
+    scanEventId: String(scan._id),
     note: "AI and rule outputs are advisory. Final authenticity judgment rests with the user and, where needed, regulators.",
   };
 }

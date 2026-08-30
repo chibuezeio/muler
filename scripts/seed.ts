@@ -1,17 +1,9 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../src/generated/prisma/client";
-import path from "path";
+import mongoose from "mongoose";
+import { Product } from "../src/lib/models/Product";
+import { ScanEvent } from "../src/lib/models/ScanEvent";
+import { ThresholdConfig } from "../src/lib/models/ThresholdConfig";
 
-const url = process.env.DATABASE_URL ?? "file:./dev.db";
-const relative = url.startsWith("file:") ? url.slice("file:".length) : "./dev.db";
-const dbPath = path.isAbsolute(relative)
-  ? relative
-  : path.join(process.cwd(), relative);
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
-const prisma = new PrismaClient({ adapter });
-
-/** Lagos, Abuja, Port Harcourt, etc. — research evaluation geography */
 const LAGOS = { lat: 6.5244, lng: 3.3792 };
 const ABUJA = { lat: 9.0765, lng: 7.3986 };
 const PH = { lat: 4.8156, lng: 7.0498 };
@@ -105,23 +97,24 @@ function hoursAgo(h: number) {
 }
 
 async function main() {
-  await prisma.verificationRun.deleteMany();
-  await prisma.scanEvent.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.thresholdConfig.deleteMany();
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error("MONGODB_URI is required");
 
-  await prisma.thresholdConfig.create({
-    data: { id: 1, maxMilesX: 50, minHoursY: 2, maxScansN: 25 },
+  await mongoose.connect(uri);
+  await ScanEvent.deleteMany({});
+  await Product.deleteMany({});
+  await ThresholdConfig.deleteMany({});
+
+  await ThresholdConfig.create({
+    key: "default",
+    maxMilesX: 50,
+    minHoursY: 2,
+    maxScansN: 25,
   });
 
-  const created = [];
-  for (const p of products) {
-    created.push(await prisma.product.create({ data: p }));
-  }
-
+  const created = await Product.insertMany(products);
   const byPayload = Object.fromEntries(created.map((p) => [p.qrPayload, p]));
 
-  // Authentic nearby / time-plausible scans (Lagos cluster)
   const authentic = [
     { payload: "MULE:MUL-AML-001:AML-2026-A1", ...LAGOS, hours: 72, device: "seed-dev-1" },
     { payload: "MULE:MUL-AML-001:AML-2026-A1", lat: 6.53, lng: 3.38, hours: 48, device: "seed-dev-2" },
@@ -137,75 +130,71 @@ async function main() {
 
   for (const s of authentic) {
     const product = byPayload[s.payload];
-    await prisma.scanEvent.create({
-      data: {
-        productId: product.id,
-        decodedPayload: s.payload,
-        latitude: s.lat,
-        longitude: s.lng,
-        deviceId: s.device,
-        layer1Pass: true,
-        layer2Pass: true,
-        layer3Pass: true,
-        riskFlags: "[]",
-        outcome: "CLEARED",
-        aiRemark: "Seeded authentic scan — no clear signs of counterfeit activity.",
-        aiRecommendations: "Continue routine verification before purchase.",
-        scanCountAtTime: 1,
-        createdAt: hoursAgo(s.hours),
-      },
-    });
-  }
-
-  // Impossible travel: same code Lagos then Abuja within 1 hour (Layer 2 evaluation)
-  const travelProduct = byPayload["MULE:MUL-CIP-006:CIP-2026-F6"];
-  await prisma.scanEvent.create({
-    data: {
-      productId: travelProduct.id,
-      decodedPayload: travelProduct.qrPayload,
-      latitude: LAGOS.lat,
-      longitude: LAGOS.lng,
-      deviceId: "seed-travel-a",
+    await ScanEvent.create({
+      product: product._id,
+      decodedPayload: s.payload,
+      latitude: s.lat,
+      longitude: s.lng,
+      deviceId: s.device,
       layer1Pass: true,
       layer2Pass: true,
       layer3Pass: true,
       riskFlags: "[]",
       outcome: "CLEARED",
-      aiRemark: "Seeded prior scan in Lagos.",
+      aiRemark: "Seeded authentic scan — no clear signs of counterfeit activity.",
+      aiRecommendations: JSON.stringify([
+        "Continue routine verification before purchase.",
+      ]),
       scanCountAtTime: 1,
-      createdAt: hoursAgo(1),
-    },
+      createdAt: hoursAgo(s.hours),
+    });
+  }
+
+  const travelProduct = byPayload["MULE:MUL-CIP-006:CIP-2026-F6"];
+  await ScanEvent.create({
+    product: travelProduct._id,
+    decodedPayload: travelProduct.qrPayload,
+    latitude: LAGOS.lat,
+    longitude: LAGOS.lng,
+    deviceId: "seed-travel-a",
+    layer1Pass: true,
+    layer2Pass: true,
+    layer3Pass: true,
+    riskFlags: "[]",
+    outcome: "CLEARED",
+    aiRemark: "Seeded prior scan in Lagos.",
+    scanCountAtTime: 1,
+    createdAt: hoursAgo(1),
   });
 
-  // High-frequency reprint pattern for MUL-REP-010 (Layer 3 evaluation)
   const reprint = byPayload["MULE:MUL-REP-010:REP-2026-J0"];
   for (let i = 0; i < 28; i++) {
-    await prisma.scanEvent.create({
-      data: {
-        productId: reprint.id,
-        decodedPayload: reprint.qrPayload,
-        latitude: LAGOS.lat + (i % 5) * 0.01,
-        longitude: LAGOS.lng + (i % 3) * 0.01,
-        deviceId: `seed-reprint-${i}`,
-        layer1Pass: true,
-        layer2Pass: true,
-        layer3Pass: i < 25,
-        riskFlags: i >= 25 ? '["HIGH_SCAN_FREQUENCY"]' : "[]",
-        outcome: i >= 25 ? "LIKELY_FAKE" : "CLEARED",
-        aiRemark:
-          i >= 25
-            ? "Large scan volume may imply QR/barcode reprint across multiple packs."
-            : "Seeded frequency buildup scan.",
-        scanCountAtTime: i + 1,
-        createdAt: hoursAgo(200 - i * 4),
-      },
+    await ScanEvent.create({
+      product: reprint._id,
+      decodedPayload: reprint.qrPayload,
+      latitude: LAGOS.lat + (i % 5) * 0.01,
+      longitude: LAGOS.lng + (i % 3) * 0.01,
+      deviceId: `seed-reprint-${i}`,
+      layer1Pass: true,
+      layer2Pass: true,
+      layer3Pass: i < 25,
+      riskFlags: i >= 25 ? '["HIGH_SCAN_FREQUENCY"]' : "[]",
+      outcome: i >= 25 ? "LIKELY_FAKE" : "CLEARED",
+      aiRemark:
+        i >= 25
+          ? "Large scan volume may imply QR/barcode reprint across multiple packs."
+          : "Seeded frequency buildup scan.",
+      scanCountAtTime: i + 1,
+      createdAt: hoursAgo(200 - i * 4),
     });
   }
 
   console.log("Seed complete:");
   console.log(`  Products: ${created.length}`);
-  console.log(`  Scans: ${await prisma.scanEvent.count()}`);
-  console.log("  Scenarios: authentic cluster, impossible travel (CIP), high-frequency reprint (REP)");
+  console.log(`  Scans: ${await ScanEvent.countDocuments()}`);
+  console.log(
+    "  Scenarios: authentic cluster, impossible travel (CIP), high-frequency reprint (REP)",
+  );
 }
 
 main()
@@ -214,5 +203,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await mongoose.disconnect();
   });

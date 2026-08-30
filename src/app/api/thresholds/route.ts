@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase, prisma } from "@/lib/db";
+import { ensureDatabase, ThresholdConfig } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 async function ensureThresholds() {
   return (
-    (await prisma.thresholdConfig.findUnique({ where: { id: 1 } })) ??
-    (await prisma.thresholdConfig.create({
-      data: { id: 1, maxMilesX: 50, minHoursY: 2, maxScansN: 25 },
+    (await ThresholdConfig.findOne({ key: "default" })) ??
+    (await ThresholdConfig.create({
+      key: "default",
+      maxMilesX: 50,
+      minHoursY: 2,
+      maxScansN: 25,
     }))
   );
 }
@@ -51,14 +54,19 @@ export async function PATCH(request: Request) {
     }
 
     await ensureThresholds();
-    const t = await prisma.thresholdConfig.update({
-      where: { id: 1 },
-      data: {
+    const t = await ThresholdConfig.findOneAndUpdate(
+      { key: "default" },
+      {
         maxMilesX,
         minHoursY,
         maxScansN: Math.round(maxScansN),
       },
-    });
+      { new: true },
+    );
+
+    if (!t) {
+      return NextResponse.json({ error: "Thresholds not found" }, { status: 404 });
+    }
 
     return NextResponse.json({
       maxMilesX: t.maxMilesX,

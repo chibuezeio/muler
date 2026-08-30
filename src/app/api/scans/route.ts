@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase, prisma } from "@/lib/db";
+import { ensureDatabase, ScanEvent } from "@/lib/db";
 
 export const runtime = "nodejs";
+
+type PopulatedProduct = {
+  productId: string;
+  name: string;
+  batch: string;
+  manufacturer: string;
+};
 
 export async function GET(request: Request) {
   try {
@@ -10,51 +17,50 @@ export async function GET(request: Request) {
     const limit = Math.min(Number(searchParams.get("limit") ?? 100), 500);
     const outcome = searchParams.get("outcome");
 
-    const scans = await prisma.scanEvent.findMany({
-      where: outcome ? { outcome } : undefined,
-      include: {
-        product: true,
-        verificationRun: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
+    const scans = await ScanEvent.find(outcome ? { outcome } : {})
+      .populate("product")
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
 
     return NextResponse.json({
-      scans: scans.map((s) => ({
-        id: s.id,
-        decodedPayload: s.decodedPayload,
-        latitude: s.latitude,
-        longitude: s.longitude,
-        deviceId: s.deviceId,
-        layer1Pass: s.layer1Pass,
-        layer2Pass: s.layer2Pass,
-        layer3Pass: s.layer3Pass,
-        riskFlags: JSON.parse(s.riskFlags || "[]"),
-        outcome: s.outcome,
-        aiRemark: s.aiRemark,
-        aiRecommendations: JSON.parse(s.aiRecommendations || "[]"),
-        distanceMiles: s.distanceMiles,
-        hoursSinceLast: s.hoursSinceLast,
-        scanCountAtTime: s.scanCountAtTime,
-        reported: s.reported,
-        createdAt: s.createdAt,
-        product: s.product
-          ? {
-              productId: s.product.productId,
-              name: s.product.name,
-              batch: s.product.batch,
-              manufacturer: s.product.manufacturer,
-            }
-          : null,
-        layers: s.verificationRun
-          ? {
-              layer1: JSON.parse(s.verificationRun.layer1Json),
-              layer2: JSON.parse(s.verificationRun.layer2Json),
-              layer3: JSON.parse(s.verificationRun.layer3Json),
-            }
-          : null,
-      })),
+      scans: scans.map((s) => {
+        const product = s.product as PopulatedProduct | null;
+        return {
+          id: String(s._id),
+          decodedPayload: s.decodedPayload,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          deviceId: s.deviceId,
+          layer1Pass: s.layer1Pass,
+          layer2Pass: s.layer2Pass,
+          layer3Pass: s.layer3Pass,
+          riskFlags: JSON.parse(s.riskFlags || "[]"),
+          outcome: s.outcome,
+          aiRemark: s.aiRemark,
+          aiRecommendations: JSON.parse(s.aiRecommendations || "[]"),
+          distanceMiles: s.distanceMiles,
+          hoursSinceLast: s.hoursSinceLast,
+          scanCountAtTime: s.scanCountAtTime,
+          reported: s.reported,
+          createdAt: s.createdAt,
+          product: product
+            ? {
+                productId: product.productId,
+                name: product.name,
+                batch: product.batch,
+                manufacturer: product.manufacturer,
+              }
+            : null,
+          layers: s.verificationRun
+            ? {
+                layer1: JSON.parse(s.verificationRun.layer1Json),
+                layer2: JSON.parse(s.verificationRun.layer2Json),
+                layer3: JSON.parse(s.verificationRun.layer3Json),
+              }
+            : null,
+        };
+      }),
     });
   } catch (error) {
     return NextResponse.json(
@@ -78,11 +84,18 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
-    const updated = await prisma.scanEvent.update({
-      where: { id },
-      data: { reported },
+    const updated = await ScanEvent.findByIdAndUpdate(
+      id,
+      { reported },
+      { new: true },
+    );
+    if (!updated) {
+      return NextResponse.json({ error: "Scan not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      id: String(updated._id),
+      reported: updated.reported,
     });
-    return NextResponse.json({ id: updated.id, reported: updated.reported });
   } catch (error) {
     return NextResponse.json(
       {

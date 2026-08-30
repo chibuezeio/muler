@@ -1,30 +1,30 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase, prisma } from "@/lib/db";
+import { ensureDatabase, Product, ScanEvent } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
     await ensureDatabase();
-    const products = await prisma.product.findMany({
-      orderBy: { productId: "asc" },
-      include: {
-        _count: { select: { scans: true } },
-      },
-    });
+    const products = await Product.find().sort({ productId: 1 }).lean();
 
-    return NextResponse.json({
-      products: products.map((p) => ({
-        id: p.id,
-        productId: p.productId,
-        name: p.name,
-        batch: p.batch,
-        manufacturer: p.manufacturer,
-        qrPayload: p.qrPayload,
-        description: p.description,
-        scanCount: p._count.scans,
-      })),
-    });
+    const withCounts = await Promise.all(
+      products.map(async (p) => {
+        const scanCount = await ScanEvent.countDocuments({ product: p._id });
+        return {
+          id: String(p._id),
+          productId: p.productId,
+          name: p.name,
+          batch: p.batch,
+          manufacturer: p.manufacturer,
+          qrPayload: p.qrPayload,
+          description: p.description ?? null,
+          scanCount,
+        };
+      }),
+    );
+
+    return NextResponse.json({ products: withCounts });
   } catch (error) {
     return NextResponse.json(
       {

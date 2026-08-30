@@ -1,99 +1,37 @@
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@/generated/prisma/client";
-import fs from "fs";
-import path from "path";
+import mongoose from "mongoose";
+import { Product } from "@/lib/models/Product";
+import { ThresholdConfig } from "@/lib/models/ThresholdConfig";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
+const globalForMongo = globalThis as unknown as {
+  mongoosePromise?: Promise<typeof mongoose>;
   muleDbReady?: Promise<void>;
 };
 
-function resolveDbUrl() {
-  // Vercel serverless FS is read-only except /tmp — use a writable SQLite path.
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    const configured = process.env.DATABASE_URL;
-    if (configured?.startsWith("file:") && configured.includes("/tmp")) {
-      return configured;
-    }
-    return "file:/tmp/muler.db";
+function getMongoUri() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error("MONGODB_URI is not configured");
   }
-
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  if (!url.startsWith("file:")) return url;
-  const relative = url.slice("file:".length);
-  if (path.isAbsolute(relative)) return url;
-  return `file:${path.join(/*turbopackIgnore: true*/ process.cwd(), relative)}`;
+  return uri;
 }
 
-function createClient() {
-  const url = resolveDbUrl();
-  const filePath = url.startsWith("file:") ? url.slice("file:".length) : null;
-  if (filePath) {
-    const dir = path.dirname(filePath);
-    if (dir && dir !== "." && !fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+export async function connectMongo() {
+  if (mongoose.connection.readyState === 1) {
+    return mongoose;
   }
-  const adapter = new PrismaBetterSqlite3({ url });
-  return new PrismaClient({ adapter });
+  if (!globalForMongo.mongoosePromise) {
+    globalForMongo.mongoosePromise = mongoose.connect(getMongoUri(), {
+      bufferCommands: false,
+    });
+  }
+  try {
+    await globalForMongo.mongoosePromise;
+  } catch (err) {
+    globalForMongo.mongoosePromise = undefined;
+    throw err;
+  }
+  return mongoose;
 }
-
-export const prisma = globalForPrisma.prisma ?? createClient();
-globalForPrisma.prisma = prisma;
-
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS "Product" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "productId" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "batch" TEXT NOT NULL,
-    "manufacturer" TEXT NOT NULL,
-    "qrPayload" TEXT NOT NULL,
-    "description" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS "ScanEvent" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "productId" TEXT,
-    "decodedPayload" TEXT NOT NULL,
-    "latitude" REAL,
-    "longitude" REAL,
-    "deviceId" TEXT,
-    "imageMeta" TEXT,
-    "layer1Pass" BOOLEAN NOT NULL DEFAULT false,
-    "layer2Pass" BOOLEAN NOT NULL DEFAULT false,
-    "layer3Pass" BOOLEAN NOT NULL DEFAULT false,
-    "riskFlags" TEXT NOT NULL DEFAULT '[]',
-    "outcome" TEXT NOT NULL,
-    "aiRemark" TEXT,
-    "aiRecommendations" TEXT,
-    "distanceMiles" REAL,
-    "hoursSinceLast" REAL,
-    "scanCountAtTime" INTEGER NOT NULL DEFAULT 0,
-    "reported" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "ScanEvent_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product" ("id") ON DELETE SET NULL ON UPDATE CASCADE
-);
-CREATE TABLE IF NOT EXISTS "VerificationRun" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "scanEventId" TEXT NOT NULL,
-    "layer1Json" TEXT NOT NULL,
-    "layer2Json" TEXT NOT NULL,
-    "layer3Json" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "VerificationRun_scanEventId_fkey" FOREIGN KEY ("scanEventId") REFERENCES "ScanEvent" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-CREATE TABLE IF NOT EXISTS "ThresholdConfig" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT DEFAULT 1,
-    "maxMilesX" REAL NOT NULL DEFAULT 50,
-    "minHoursY" REAL NOT NULL DEFAULT 2,
-    "maxScansN" INTEGER NOT NULL DEFAULT 25,
-    "updatedAt" DATETIME NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "Product_productId_key" ON "Product"("productId");
-CREATE UNIQUE INDEX IF NOT EXISTS "Product_qrPayload_key" ON "Product"("qrPayload");
-CREATE UNIQUE INDEX IF NOT EXISTS "VerificationRun_scanEventId_key" ON "VerificationRun"("scanEventId");
-`;
 
 const SEED_PRODUCTS = [
   {
@@ -122,42 +60,34 @@ const SEED_PRODUCTS = [
   },
 ] as const;
 
-/** Ensure schema + defaults exist (needed on Vercel where /tmp SQLite starts empty). */
+/** Connect + ensure defaults exist (safe to call on every API request). */
 export async function ensureDatabase() {
-  if (!globalForPrisma.muleDbReady) {
-    globalForPrisma.muleDbReady = (async () => {
-      const statements = SCHEMA_SQL.split(";")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      for (const statement of statements) {
-        await prisma.$executeRawUnsafe(statement);
-      }
+  if (!globalForMongo.muleDbReady) {
+    globalForMongo.muleDbReady = (async () => {
+      await connectMongo();
 
-      const thresholds = await prisma.thresholdConfig.findUnique({
-        where: { id: 1 },
-      });
+      const thresholds = await ThresholdConfig.findOne({ key: "default" });
       if (!thresholds) {
-        await prisma.thresholdConfig.create({
-          data: {
-            id: 1,
-            maxMilesX: 50,
-            minHoursY: 2,
-            maxScansN: 25,
-            updatedAt: new Date(),
-          },
+        await ThresholdConfig.create({
+          key: "default",
+          maxMilesX: 50,
+          minHoursY: 2,
+          maxScansN: 25,
         });
       }
 
-      const productCount = await prisma.product.count();
+      const productCount = await Product.countDocuments();
       if (productCount === 0) {
-        for (const p of SEED_PRODUCTS) {
-          await prisma.product.create({ data: { ...p } });
-        }
+        await Product.insertMany([...SEED_PRODUCTS]);
       }
     })().catch((err) => {
-      globalForPrisma.muleDbReady = undefined;
+      globalForMongo.muleDbReady = undefined;
       throw err;
     });
   }
-  await globalForPrisma.muleDbReady;
+  await globalForMongo.muleDbReady;
 }
+
+export { Product } from "@/lib/models/Product";
+export { ScanEvent } from "@/lib/models/ScanEvent";
+export { ThresholdConfig } from "@/lib/models/ThresholdConfig";

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase, prisma } from "@/lib/db";
+import { ensureDatabase, ScanEvent } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -7,19 +7,12 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     await ensureDatabase();
-    const scans = await prisma.scanEvent.findMany({
-      where: {
-        latitude: { not: null },
-        longitude: { not: null },
-      },
-      select: {
-        latitude: true,
-        longitude: true,
-        outcome: true,
-        riskFlags: true,
-        product: { select: { name: true, productId: true } },
-      },
-    });
+    const scans = await ScanEvent.find({
+      latitude: { $ne: null },
+      longitude: { $ne: null },
+    })
+      .populate("product", "name productId")
+      .lean();
 
     const buckets = new Map<
       string,
@@ -49,7 +42,8 @@ export async function GET() {
       bucket.total += 1;
       if (s.outcome === "LIKELY_FAKE") bucket.likelyFake += 1;
       if (s.outcome === "CLEARED") bucket.cleared += 1;
-      if (s.product?.productId) bucket.products.add(s.product.productId);
+      const product = s.product as { productId?: string } | null;
+      if (product?.productId) bucket.products.add(product.productId);
       buckets.set(key, bucket);
     }
 

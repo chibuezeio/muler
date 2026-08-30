@@ -22,8 +22,8 @@ Default thresholds (editable in the dashboard):
 
 ## Stack
 
-- Next.js (App Router) — UI + REST API (consolidates the paper’s React + Express/Django split)
-- Prisma + SQLite — local reproducibility (portable toward PostgreSQL)
+- Next.js (App Router) — UI + REST API
+- MongoDB + Mongoose — products, scans, thresholds
 - Azure OpenAI Responses API (`gpt-5.4`) — packaging analysis & remarks
 - html5-qrcode — camera + upload decode
 - Leaflet — geospatial hotspot map
@@ -32,8 +32,7 @@ Default thresholds (editable in the dashboard):
 
 ```bash
 npm install
-cp .env.example .env.local   # add Azure key
-npx prisma migrate dev
+cp .env.example .env.local   # add MONGODB_URI + Azure key
 npm run db:seed
 npm run dev
 ```
@@ -43,13 +42,15 @@ Open [http://localhost:3000](http://localhost:3000) (or the port Next.js prints 
 ### Environment
 
 ```env
-DATABASE_URL="file:./dev.db"
+MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster.mongodb.net/muler?retryWrites=true&w=majority
 AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=https://osi-azure-openai.services.ai.azure.com/openai/v1/responses
 AZURE_OPENAI_MODEL=gpt-5.4
 ```
 
-> If an API key was shared in chat or committed anywhere, **rotate it** in Azure.
+> Encode special characters in the Mongo password (e.g. `!` → `%21`).  
+> On Vercel, set the same `MONGODB_URI` and Azure vars, and allow `0.0.0.0/0` (or Vercel IPs) in Atlas Network Access.  
+> Rotate any credentials that were pasted in chat.
 
 ## Reproducing evaluation scenarios
 
@@ -98,7 +99,6 @@ On `/dashboard`:
 
 ```bash
 npm run dev          # development server
-npm run build        # prisma generate + next build
-npm run db:seed      # reset research fixtures
-npm run db:migrate   # apply migrations
+npm run build        # next build
+npm run db:seed      # reset research fixtures in MongoDB
 ```
