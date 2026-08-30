@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ensureDatabase } from "@/lib/db";
 import { runVerification } from "@/lib/verification/pipeline";
 import type { VerifyRequest } from "@/lib/types";
 
@@ -7,6 +8,7 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
+    await ensureDatabase();
     const body = (await request.json()) as VerifyRequest;
 
     if (!body || typeof body !== "object") {

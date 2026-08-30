@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { ensureDatabase, prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -13,17 +13,29 @@ async function ensureThresholds() {
 }
 
 export async function GET() {
-  const t = await ensureThresholds();
-  return NextResponse.json({
-    maxMilesX: t.maxMilesX,
-    minHoursY: t.minHoursY,
-    maxScansN: t.maxScansN,
-    updatedAt: t.updatedAt,
-  });
+  try {
+    await ensureDatabase();
+    const t = await ensureThresholds();
+    return NextResponse.json({
+      maxMilesX: t.maxMilesX,
+      minHoursY: t.minHoursY,
+      maxScansN: t.maxScansN,
+      updatedAt: t.updatedAt,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Failed to load thresholds",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PATCH(request: Request) {
   try {
+    await ensureDatabase();
     const body = await request.json();
     const maxMilesX = Number(body.maxMilesX);
     const minHoursY = Number(body.minHoursY);
