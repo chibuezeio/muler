@@ -12,6 +12,7 @@ This is a **research artefact**, not a regulatory certification product. AI and 
 | Tier 2 — Registry recognition + distance vs last scan (X miles) | Layer 2 in `pipeline.ts` + Azure vision/remarks via [`openai.ts`](src/lib/openai.ts) |
 | Tier 3 — Time (Y hours) + scan frequency (n) | Layer 3 in `pipeline.ts` |
 | Dashboard / hotspots (Fig. 9) | [`/dashboard`](src/app/dashboard/page.tsx) |
+| Admin evaluation metrics | [`/admin`](src/app/admin/page.tsx) — identity + Layer 1–3 Acc/Prec/Rec/F1/Sens/Spec/FPR/MCC/AUROC |
 | Regulatory engagement recommendation | “Report for regulatory review” on verify + dashboard |
 
 Default thresholds (editable in the dashboard):

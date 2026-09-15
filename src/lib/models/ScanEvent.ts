@@ -29,6 +29,18 @@ const ScanEventSchema = new Schema(
     scanCountAtTime: { type: Number, default: 0 },
     reported: { type: Boolean, default: false },
     verificationRun: { type: VerificationRunSchema, default: null },
+    /** Research label: AUTHENTIC | FAKE (null = unlabeled) */
+    groundTruth: {
+      type: String,
+      enum: ["AUTHENTIC", "FAKE"],
+      default: null,
+      index: true,
+    },
+    /** Per-layer expected pass for stratified evaluation (null = derive from groundTruth) */
+    layer1ExpectedPass: { type: Boolean, default: null },
+    layer2ExpectedPass: { type: Boolean, default: null },
+    layer3ExpectedPass: { type: Boolean, default: null },
+    evaluationNote: { type: String, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

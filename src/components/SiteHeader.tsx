@@ -4,6 +4,7 @@ const links = [
   { href: "/", label: "Methods" },
   { href: "/verify", label: "Verify" },
   { href: "/dashboard", label: "Research Dashboard" },
+  { href: "/admin", label: "Admin" },
 ];
 
 export function SiteHeader() {

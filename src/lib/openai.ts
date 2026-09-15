@@ -34,7 +34,6 @@ async function callResponses(input: unknown): Promise<string> {
     headers: {
       "Content-Type": "application/json",
       "api-key": AZURE_OPENAI_API_KEY,
-      Authorization: `Bearer ${AZURE_OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
       model,
